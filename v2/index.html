@@ -254,7 +254,7 @@ const COLORS = [
   ['Blue','#2563eb'],['White','#f5f5f5'],['Red','#dc2626'],['Black','#111827'],['Yellow','#facc15'],['Green','#16a34a'],['Orange','#f97316'],
   ['Purple','#7c3aed'],['Sky','#38bdf8'],['Maroon','#7f1d1d'],['Gray','#9ca3af'],['Pink','#ec4899'],['Navy','#1e3a8a'],['Teal','#0d9488']];
 const DEF = {halfLen:40, breakAt:20, breakLen:5, htLen:15, win:3, draw:1, loss:0, yellowLimit:3,
-  reasons:['Foul','Dissent','Unsporting','Fighting','Bad language','Handball','Other'], vibrate:true, timeline:true};
+  reasons:['Foul','Dissent','Unsporting','Fighting','Bad language','Handball','Other'], vibrate:true, timeline2:false};
 
 function defaultState(){
   return {v:1, settings:{...DEF}, teams:Array.from({length:9},(_,i)=>({id:'t'+(i+1), name:'Team '+(i+1), color:COLORS[i][1], players:{}})),
@@ -930,30 +930,29 @@ function liveMenu(){
 
 /* ================= Report text ================= */
 function scorersLines(g, side){
-  const own = {}, ogs = [];
-  for(const e of g.events){ if(e.type!=='goal') continue;
-    if(!e.og && e.side===side){ const k = e.num||'?'; own[k] = own[k] || {n:0, pk:0, mins:[]}; own[k].n++; if(e.pk) own[k].pk++; own[k].mins.push(e.min); }
-    if(e.og && other(e.side)===side) ogs.push(e); }
-  const lines = Object.entries(own).sort((a,b)=>b[1].n-a[1].n || sortNums(a[0],b[0])).map(([num,v])=>`  ${who(g,side,num,false)} x${v.n}${v.pk?' ('+v.pk+' PK)':''} – ${v.mins.join(', ')}`);
-  for(const e of ogs) lines.push(`  Own goal by ${who(g,e.side,e.num||'?')} – ${e.min}`);
+  const own = {}, lines = [];
+  for(const e of g.events){ if(e.type==='goal' && !e.og && e.side===side){ const k = e.num||'?'; own[k] = own[k] || {n:0, pk:0}; own[k].n++; if(e.pk) own[k].pk++; } }
+  for(const [num,v] of Object.entries(own).sort((a,b)=>b[1].n-a[1].n || sortNums(a[0],b[0]))){ const nm = playerName(g, side, num); lines.push(`  ${numLabel(num)}${nm?' '+nm:''} x${v.n}${v.pk?' ('+v.pk+' PK)':''}`); }
+  for(const e of g.events) if(e.type==='goal' && e.og && other(e.side)===side){ const nm = e.num ? playerName(g, e.side, e.num) : ''; lines.push(`  Own goal by ${teamOf(g,e.side).name} ${numLabel(e.num||'?')}${nm?' '+nm:''}`); }
   return lines;
 }
 function cardLines(g, side){
   return g.events.filter(e=>(e.type==='yellow'||e.type==='red') && e.side===side).sort((a,b)=>a.at-b.at)
-    .map(e=>`  ${e.type==='yellow'?'Yellow':'RED'} ${who(g,side,e.num||'?',false)} – ${e.min}${e.reason?' – '+e.reason:''}${e.type==='red'&&e.ban!=null?' – ban '+e.ban+' game'+(e.ban===1?'':'s'):''}`);
+    .map(e=>{ const nm = e.num ? playerName(g, side, e.num) : ''; return `  ${e.type==='yellow'?'Yellow':'RED'} ${numLabel(e.num||'?')}${nm?' '+nm:''}${e.reason?' ('+e.reason+')':''}${e.type==='red'&&e.ban!=null&&e.ban>0?' – ban '+e.ban+' game'+(e.ban===1?'':'s'):''}`; });
 }
-function gameText(g, withTimeline = S.settings.timeline){
-  const A = teamOf(g,'A'), B = teamOf(g,'B'); const [a,b] = score(g); const [ha,hb] = score(g,1);
+function gameText(g, withTimeline = S.settings.timeline2){
+  const A = teamOf(g,'A'), B = teamOf(g,'B'); const [a,b] = score(g);
   const L = [];
   L.push(`${fmtDateLong(g.date)} · ${g.kickoff?fmtTOD(g.kickoff):fmt12(g.sched)}${g.status==='live'?' (in progress)':''}`);
   L.push(`${A.name} ${a} - ${b} ${B.name}`);
-  L.push(`Halftime: ${A.name} ${ha} - ${hb} ${B.name}`);
   L.push('', 'GOALS');
-  for(const [s,t,n] of [['A',A,a],['B',B,b]]){ const ls = scorersLines(g,s); L.push(`${t.name} (${n})${ls.length?'':': none'}`, ...ls); }
+  let anyGoal = false;
+  for(const [s,t,n] of [['A',A,a],['B',B,b]]){ const ls = scorersLines(g,s); if(n || ls.length){ anyGoal = true; L.push(`${t.name} (${n})`, ...ls); } }
+  if(!anyGoal) L.push('none');
   L.push('', 'CARDS');
-  for(const [s,t] of [['A',A],['B',B]]){ const ls = cardLines(g,s); L.push(`${t.name}${ls.length?'':': none'}`, ...ls); }
+  for(const [s,t] of [['A',A],['B',B]]){ const ls = cardLines(g,s); if(ls.length) L.push(t.name, ...ls); else L.push(`${t.name}: none`); }
   const notes = g.events.filter(e=>e.type==='note').sort((x,y)=>x.at-y.at);
-  if(notes.length){ L.push('', 'NOTES'); for(const e of notes) L.push(`  ${e.min} ${e.num?who(g,e.side,e.num)+': ':''}${e.text}`); }
+  if(notes.length){ L.push('', 'NOTES'); for(const e of notes) L.push(`  ${e.num?who(g,e.side,e.num)+': ':''}${e.text}`); }
   if(withTimeline){
     const ev = g.events.filter(e=>e.type!=='note').sort((x,y)=>x.at-y.at);
     if(ev.length){ L.push('', 'TIMELINE'); for(const e of ev) L.push(`  ${e.min} (${fmtTOD(e.at)}) ${evText(g,e)}`); }
@@ -962,7 +961,7 @@ function gameText(g, withTimeline = S.settings.timeline){
 }
 function dayText(ds){
   const gs = S.games.filter(g=>g.date===ds && g.status!=='setup').sort((a,b)=>kickTime(a)-kickTime(b));
-  return `REFEREE REPORT – ${fmtDateLong(ds)}\n${gs.length} game${gs.length===1?'':'s'}\n\n` + gs.map((g,i)=>`GAME ${i+1}\n`+gameText(g)).join('\n\n----------\n\n');
+  return `REPORT –\n${fmtDateLong(ds)}\n${gs.length} game${gs.length===1?'':'s'}\n\n` + gs.map((g,i)=>`GAME ${i+1}\n`+gameText(g)).join('\n\n----------\n\n');
 }
 function copyText(text){
   const fallback = () => { openSheet(`<h3>Copy this text</h3><p class="mute" style="margin:0">Press and hold in the box, then Select all and Copy.</p><textarea id="cpTx" style="min-height:300px">${esc(text)}</textarea><button class="btn" data-act="closeSheet">Done</button>`); setTimeout(()=>{ const t = $('#cpTx'); t.focus(); t.select(); }, 50); };
@@ -983,7 +982,7 @@ function renderReport(){
     <p class="mute center" style="margin:0">Halftime ${ha}–${hb} · ${esc(fmtDateLong(g.date))} · ${g.kickoff?fmtTOD(g.kickoff):''}${g.status==='live'?' · in progress':''}</p>
     ${banHTML}
     <section class="card"><h2>Report text</h2>
-      <label class="chk"><input type="checkbox" id="tlChk" ${S.settings.timeline?'checked':''}> Include minute-by-minute timeline</label>
+      <label class="chk"><input type="checkbox" id="tlChk" ${S.settings.timeline2?'checked':''}> Include minute-by-minute timeline</label>
       <pre class="rep">${esc(gameText(g))}</pre>
       <div class="row2"><button class="btn pri" data-act="copyGame">Copy this game</button><button class="btn" data-act="copyDay" data-date="${g.date}">Copy all games ${esc(fmtDate(g.date))}</button></div></section>
     <section class="card"><h2>All entries · tap to fix</h2><div class="log">${logHTML(g)}</div>
@@ -1188,7 +1187,7 @@ document.addEventListener('click', e=>{
   const fn = ACT[a.dataset.act]; if(fn){ e.preventDefault(); fn(a, e); }
 });
 document.addEventListener('change', e=>{
-  if(e.target.id==='tlChk'){ S.settings.timeline = e.target.checked; touchMeta(); rerender(); }
+  if(e.target.id==='tlChk'){ S.settings.timeline2 = e.target.checked; touchMeta(); rerender(); }
   if(view==='setup' && ['sA','sB','sDate','sTime'].includes(e.target.id)){ readSetup(); renderSetup(); }
 });
 
