@@ -65,10 +65,17 @@ textarea{min-height:90px;resize:vertical}
 #v-live{gap:8px}
 .top{display:flex;align-items:center;gap:8px}
 .iconBtn{width:46px;height:52px;border-radius:12px;background:var(--panel);font-size:22px;flex:none}
-.tod{flex:1;min-width:0;white-space:nowrap;overflow:hidden;font:700 clamp(21px,7vw,30px)/1 var(--f-num);font-variant-numeric:tabular-nums}
+.tod{flex:1;min-width:0;white-space:nowrap;overflow:hidden;font:700 clamp(19px,6.2vw,30px)/1 var(--f-num);font-variant-numeric:tabular-nums}
+.tod .perBtn{display:block;font:700 13px/1.4 var(--f-ui);color:var(--mute);padding:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;text-align:left}
+.perlist{display:flex;flex-direction:column;gap:6px}
+.perlist .btn{text-align:left}
+.perlist .brk{opacity:.85;font-weight:600}
+.kacts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:6px}
+.kacts .act{height:56px;font-size:22px}
+.chip.add.wide{grid-column:1/-1;font:700 16px var(--f-ui)}
 .tod .ap{font-size:12px;margin-left:2px;letter-spacing:.02em}
 .tod small{display:block;font:600 13px/1.3 var(--f-ui);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pauseBtn{height:52px;padding:0 12px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font:800 22px var(--f-num);letter-spacing:.05em;flex:none}
+.pauseBtn{height:52px;padding:0 10px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font:800 22px var(--f-num);letter-spacing:.05em;flex:none}
 .pauseBtn.on{background:var(--yel);color:#2a2200;border-color:transparent}
 .plusBtn{height:52px;width:52px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font:800 22px var(--f-num);flex:none}
 .clockWrap{text-align:center;cursor:pointer;padding:0;display:block;width:100%}
@@ -292,7 +299,7 @@ const numLabel = n => isNum(n) ? '#'+n : n;
 function sortNums(a,b){ const an=isNum(a), bn=isNum(b); if(an&&bn) return a-b; if(an) return -1; if(bn) return 1; return a.localeCompare(b); }
 const other = s => s==='A' ? 'B' : 'A';
 function teamById(id){ return S.teams.find(t=>t.id===id); }
-function teamOf(g, side){ return teamById(g[side]) || {id:g[side], name:(g.names||{})[side]||'Team', color:(g.colors||{})[side]||'#666666', players:{}}; }
+function teamOf(g, side){ if(g.tm && g.tm[side]) return g.tm[side]; return teamById(g[side]) || {id:g[side], name:(g.names||{})[side]||'Team', color:(g.colors||{})[side]||'#666666', players:{}}; }
 function gameById(id){ return S.games.find(g=>g.id===id); }
 function kickTime(g){ return g.kickoff || dateObj(g.date).getTime(); }
 function playerName(g, side, num){ const t = teamOf(g, side); return (t.players && t.players[num] && t.players[num].name) || ''; }
@@ -312,36 +319,36 @@ function pStats(g, side, num){
   return {goals, y, r};
 }
 function finals(){ return S.games.filter(g=>g.status==='final').sort((a,b)=>kickTime(a)-kickTime(b)); }
-function sideOfTeam(g, tid){ return g.A===tid ? 'A' : g.B===tid ? 'B' : null; }
+function teamKey(g, side){ return (teamOf(g, side).name || '').trim().toLowerCase(); }
+function sideOfKey(g, key){ return teamKey(g,'A')===key ? 'A' : teamKey(g,'B')===key ? 'B' : null; }
+function nameIn(key, num){ for(const g of [...S.games].reverse()){ const s = sideOfKey(g, key); if(s){ const nm = playerName(g, s, num); if(nm) return nm; } } return ''; }
 
-/* Suspensions: every red in a final game creates a ban (default 1 game until you set it). */
+/* Suspensions: every red in a final game creates a ban (default 1 game until you set it).
+   Teams are matched by the name typed for each game. */
 function allBans(){
-  const list = [];
-  const fs = finals();
-  for(const g of fs){
-    for(const e of g.events){
-      if(e.type!=='red') continue;
-      const tid = g[e.side]; const ban = (e.ban==null ? 1 : e.ban);
-      const served = fs.filter(x=>x!==g && kickTime(x)>kickTime(g) && (x.A===tid||x.B===tid)).length;
-      list.push({g, e, tid, num:e.num, ban, set:e.ban!=null, served, left:Math.max(0, ban-served)});
-    }
+  const list = []; const fs = finals();
+  for(const g of fs) for(const e of g.events){
+    if(e.type!=='red') continue;
+    const key = teamKey(g, e.side); const ban = (e.ban==null ? 1 : e.ban);
+    const served = fs.filter(x=>x!==g && kickTime(x)>kickTime(g) && sideOfKey(x, key)).length;
+    list.push({g, e, key, num:e.num, ban, set:e.ban!=null, served, left:Math.max(0, ban-served)});
   }
   return list;
 }
-function activeBansFor(tid, beforeMs){
+function activeBansFor(key, beforeMs){
   const fs = finals();
-  return allBans().filter(b=>b.tid===tid && kickTime(b.g)<beforeMs).map(b=>{
-    const served = fs.filter(x=>x!==b.g && kickTime(x)>kickTime(b.g) && kickTime(x)<beforeMs && (x.A===tid||x.B===tid)).length;
+  return allBans().filter(b=>b.key===key && kickTime(b.g)<beforeMs).map(b=>{
+    const served = fs.filter(x=>x!==b.g && kickTime(x)>kickTime(b.g) && kickTime(x)<beforeMs && sideOfKey(x, key)).length;
     return {...b, served, left:Math.max(0,b.ban-served)};
   }).filter(b=>b.left>0);
 }
-function seasonYellows(tid, exceptGame){
+function seasonYellows(key, exceptGame){
   const m = {};
-  for(const g of S.games){ if(g===exceptGame || g.status==='setup') continue; const s = sideOfTeam(g, tid); if(!s) continue;
+  for(const g of S.games){ if(g===exceptGame || g.status==='setup') continue; const s = sideOfKey(g, key); if(!s) continue;
     for(const e of g.events){ if(e.type==='yellow' && e.side===s && !e.grp) m[e.num] = (m[e.num]||0)+1; } }
   return m;
 }
-function isSuspendedNow(g, side, num){ return activeBansFor(g[side], kickTime(g)).some(b=>b.num===num); }
+function isSuspendedNow(g, side, num){ return activeBansFor(teamKey(g, side), kickTime(g)).some(b=>b.num===num); }
 
 /* ================= Clock ================= */
 function buildSegs(c){
@@ -388,12 +395,12 @@ function stateOf(g, i){
   return 'play';
 }
 /* Breaks end on the schedule: kickoff + the planned lengths. Extra time or pauses come out of the next break
-   (never shorter than MIN_BREAK); ending a period early makes the break longer. */
+   (never shorter than MIN_BREAK); ending a period early makes the break longer, by up to 5 minutes. */
 const MIN_BREAK = 60;
 function schedEndOf(g, idx){ let t = g.kickoff; for(let j=0; j<=idx; j++) t += g.segs[j].len*1000; return t; }
 function enterSeg(g, startMs){
   const c = g.clock, seg = g.segs[c.i]; c.add = 0;
-  if(seg && seg.k==='break' && g.kickoff){ const eff = Math.max(MIN_BREAK, (schedEndOf(g, c.i) - startMs)/1000); c.add = Math.round(eff - seg.len); }
+  if(seg && seg.k==='break' && g.kickoff){ const eff = Math.min(seg.len + 300, Math.max(MIN_BREAK, (schedEndOf(g, c.i) - startMs)/1000)); c.add = Math.round(eff - seg.len); }
 }
 function advance(g, now){
   let changed = false;
@@ -522,14 +529,13 @@ function renderHome(){
     <button class="btn big pri" data-act="newGame">${lg?'Start another game':'New game'}</button>
     <section class="card"><h2>Today's games</h2>
       ${todays.length ? todays.map(gameRow).join('') : '<p class="mute" style="margin:0">No games yet today.</p>'}
-      ${todays.length ? `<button class="btn" data-act="copyDay" data-date="${today}">Copy today's report (all games)</button>` : ''}
+      ${todays.length ? `<div class="row2"><button class="btn pri" data-act="sendDay" data-date="${today}">Send today's report</button><button class="btn" data-act="copyDay" data-date="${today}">Copy today's report</button></div>` : ''}
     </section>
     <nav class="nav">
       <button class="btn" data-act="go" data-v="standings">Standings</button>
       <button class="btn" data-act="go" data-v="susp">Suspensions</button>
-      <button class="btn" data-act="go" data-v="teams">Teams &amp; players</button>
       <button class="btn" data-act="go" data-v="history">All games</button>
-      <button class="btn" data-act="go" data-v="settings" style="grid-column:1/-1">Settings &amp; backup</button>
+      <button class="btn" data-act="go" data-v="settings">Settings &amp; backup</button>
     </nav>
     <p class="sync" data-sync></p>`;
   renderSync();
@@ -537,59 +543,50 @@ function renderHome(){
 
 /* ================= Setup ================= */
 let draft = null;
+const colorName = c => (COLORS.find(x=>x[1]===c)||['Team'])[0];
 function newDraft(){
-  const today = todayStr();
-  const used = new Set(S.games.filter(g=>g.date===today).flatMap(g=>[g.A,g.B]));
-  const free = S.teams.filter(t=>!used.has(t.id));
-  const pick = free.length>=2 ? free : S.teams;
   const now = new Date(); const m = now.getMinutes();
   const sched = pad(now.getHours() + (m>45?1:0)) + ':' + (m>45 ? '00' : m>15 ? '30' : '00');
-  draft = {id:uid(), date:today, sched, A:pick[0]?.id, B:pick[1]?.id, capA:'', capB:'',
+  draft = {id:uid(), date:todayStr(), sched, capA:'', capB:'',
+    tm:{A:{name:'', color:'#2563eb', players:{}}, B:{name:'', color:'#f5f5f5', players:{}}},
     cfg:{halfLen:S.settings.halfLen, breakAt:S.settings.breakAt, breakLen:S.settings.breakLen, htLen:S.settings.htLen}, status:'setup', events:[], hidden:{A:[],B:[]}};
 }
+function draftName(side){ const t = draft.tm[side]; return t.name || colorName(t.color); }
 function warningsHTML(){
   if(!draft) return '';
-  const t0 = new Date(); const items = [];
+  const now = Date.now(); const items = [], ys = [];
   for(const side of ['A','B']){
-    const t = teamById(draft[side]); if(!t) continue;
-    for(const b of activeBansFor(t.id, t0.getTime()+1)){
-      const nm = (t.players[b.num]||{}).name;
-      items.push(`<div><b>${esc(t.name)} ${esc(numLabel(b.num))}${nm?' '+esc(nm):''}</b> is suspended · red card ${fmtDate(b.g.date)} · ${b.left} game${b.left>1?'s':''} left${b.set?'':' (ban length not set)'}</div>`);
+    const nm = draftName(side), key = nm.trim().toLowerCase();
+    for(const b of activeBansFor(key, now+1)){
+      const pn = playerName(b.g, b.e.side, b.num);
+      items.push(`<div><b>${esc(nm)} ${esc(numLabel(b.num))}${pn?' '+esc(pn):''}</b> is suspended · red card ${fmtDate(b.g.date)} · ${b.left} game${b.left>1?'s':''} left${b.set?'':' (ban length not set)'}</div>`);
+    }
+    if(S.settings.yellowLimit>0) for(const [num,c] of Object.entries(seasonYellows(key))) if(c >= S.settings.yellowLimit-1){
+      const pn = nameIn(key, num);
+      ys.push(`<div><b>${esc(nm)} ${esc(numLabel(num))}${pn?' '+esc(pn):''}</b> has ${c} yellow${c>1?'s':''} this season${c>=S.settings.yellowLimit?' · at the limit, check suspension':' · one more reaches '+S.settings.yellowLimit}</div>`);
     }
   }
-  const ys = [];
-  for(const side of ['A','B']){
-    const t = teamById(draft[side]); if(!t) continue;
-    const m = seasonYellows(t.id);
-    for(const [num,c] of Object.entries(m)) if(c >= S.settings.yellowLimit-1 && S.settings.yellowLimit>0){
-      const nm = (t.players[num]||{}).name;
-      ys.push(`<div><b>${esc(t.name)} ${esc(numLabel(num))}${nm?' '+esc(nm):''}</b> has ${c} yellow${c>1?'s':''} this season${c>=S.settings.yellowLimit?' · at the limit, check suspension':' · one more reaches '+S.settings.yellowLimit}</div>`);
-    }
-  }
-  let h = '';
-  h += items.length ? `<div class="warnbox"><h2 style="color:#ffb3b3">Suspended</h2>${items.join('')}</div>` : `<div class="warnbox ok">No suspended players for these teams.</div>`;
+  let h = items.length ? `<div class="warnbox"><h2 style="color:#ffb3b3">Suspended</h2>${items.join('')}</div>` : `<div class="warnbox ok">No suspended players found for these team names.</div>`;
   if(ys.length) h += `<div class="warnbox y"><h2 style="color:#ffe88a">Yellow card watch</h2>${ys.join('')}</div>`;
   return h;
 }
 function renderSetup(){
   if(!draft) newDraft();
-  const opts = sel => S.teams.map(t=>`<option value="${t.id}" ${t.id===sel?'selected':''}>${esc(t.name)} (${esc((COLORS.find(c=>c[1]===t.color)||['Custom'])[0])})</option>`).join('');
-  const roster = side => { const t = teamById(draft[side]); return t ? Object.keys(t.players).sort(sortNums).join(' ') : ''; };
+  const past = [...new Set(S.games.filter(g=>g.status!=='setup').flatMap(g=>[teamOf(g,'A').name, teamOf(g,'B').name]))].sort();
+  const box = side => { const t = draft.tm[side]; return `<section class="card">
+      <div class="thead" style="--cb:${t.color};--cf:${textOn(t.color)}"><span class="tname">Team ${side==='A'?1:2} · ${esc(draftName(side))}</span></div>
+      <label class="f">Team name (what you write in the report)<input type="text" id="sName${side}" list="pastTeams" value="${esc(t.name)}" placeholder="${esc(colorName(t.color))}" autocomplete="off"></label>
+      <div class="f">Shirt color<div class="colors">${COLORS.map(([n,c])=>`<button class="${c===t.color?'on':''}" style="background:${c}" data-act="setupColor" data-side="${side}" data-c="${c}" aria-label="${n}" title="${n}"></button>`).join('')}</div></div>
+      <label class="f">Captain (optional)<input type="text" id="sCap${side}" value="${esc(draft['cap'+side])}" placeholder="#10 Juan"></label></section>`; };
   const c = draft.cfg;
   $('#v-setup').innerHTML = `
     <div class="bar"><button class="btn sm" data-act="go" data-v="home">← Home</button></div>
     <h1>New game</h1>
+    <p class="mute" style="margin:0;font-size:13px">Every game starts empty. Numbers show up as you log goals and cards.</p>
     <div class="row2"><label class="f">Date<input type="date" id="sDate" value="${draft.date}"></label><label class="f">Scheduled start<input type="time" id="sTime" value="${draft.sched}"></label></div>
-    <div class="row2">
-      <label class="f">Team 1<select id="sA">${opts(draft.A)}</select></label>
-      <label class="f">Team 2<select id="sB">${opts(draft.B)}</select></label>
-    </div>
+    ${box('A')}${box('B')}
+    <datalist id="pastTeams">${past.map(n=>`<option value="${esc(n)}"></option>`).join('')}</datalist>
     <div id="warns">${warningsHTML()}</div>
-    <section class="card"><h2>Numbers on the field <span style="text-transform:none;letter-spacing:0;font-weight:500">(optional, space between)</span></h2>
-      <div class="row2"><label class="f">${esc(teamById(draft.A)?.name||'Team 1')}<input type="text" id="sNumA" inputmode="numeric" value="${esc(roster('A'))}" placeholder="2 4 7 9 10"></label>
-      <label class="f">${esc(teamById(draft.B)?.name||'Team 2')}<input type="text" id="sNumB" inputmode="numeric" value="${esc(roster('B'))}" placeholder="3 5 8 11"></label></div>
-      <div class="row2"><label class="f">Captain (optional)<input type="text" id="sCapA" value="${esc(draft.capA)}" placeholder="#10 Juan"></label><label class="f">Captain (optional)<input type="text" id="sCapB" value="${esc(draft.capB)}"></label></div>
-    </section>
     <section class="card"><h2>Times for this game (minutes)</h2>
       <div class="form3"><label class="f">Half<input type="number" id="sHalf" value="${c.halfLen}"></label><label class="f">Water break at<input type="number" id="sBrAt" value="${c.breakAt}"></label><label class="f">Break length<input type="number" id="sBrLen" value="${c.breakLen}"></label><label class="f">Halftime<input type="number" id="sHt" value="${c.htLen}"></label></div>
       <p class="mute" style="margin:0;font-size:13px">Water break at 0 = no water break.</p>
@@ -599,19 +596,17 @@ function renderSetup(){
 }
 function readSetup(){
   draft.date = $('#sDate').value || todayStr(); draft.sched = $('#sTime').value;
-  draft.A = $('#sA').value; draft.B = $('#sB').value; draft.capA = $('#sCapA').value.trim(); draft.capB = $('#sCapB').value.trim();
+  draft.tm.A.name = $('#sNameA').value.trim(); draft.tm.B.name = $('#sNameB').value.trim();
+  draft.capA = $('#sCapA').value.trim(); draft.capB = $('#sCapB').value.trim();
   const num = (id, d) => { const v = parseFloat($(id).value); return isFinite(v) && v>=0 ? v : d; };
   draft.cfg = {halfLen:num('#sHalf',40)||40, breakAt:num('#sBrAt',20), breakLen:num('#sBrLen',5), htLen:num('#sHt',15)};
 }
 function kickoff(mode){
   readSetup();
-  if(draft.A===draft.B){ toast('Pick two different teams'); return; }
-  for(const [side,id] of [['A','#sNumA'],['B','#sNumB']]){
-    const t = teamById(draft[side]); if(!t) continue;
-    for(const n of $(id).value.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean)){ if(!t.players[n]) t.players[n] = {name:''}; }
-  }
+  for(const s of ['A','B']) draft.tm[s].name = draftName(s);
+  if(draft.tm.A.name.toLowerCase()===draft.tm.B.name.toLowerCase()){ toast('Give the two teams different names'); return; }
   const g = draft; draft = null;
-  g.names = {A:teamOf(g,'A').name, B:teamOf(g,'B').name}; g.colors = {A:teamOf(g,'A').color, B:teamOf(g,'B').color};
+  g.names = {A:g.tm.A.name, B:g.tm.B.name}; g.colors = {A:g.tm.A.color, B:g.tm.B.color};
   g.segs = buildSegs(g.cfg);
   let start = Date.now();
   if(mode==='sched' && g.sched){ const [h,m] = g.sched.split(':').map(Number); const d = dateObj(g.date); d.setHours(h,m,0,0); if(d.getTime() < start) start = d.getTime(); }
@@ -620,6 +615,7 @@ function kickoff(mode){
   S.games.push(g); S.liveId = g.id;
   if(g.capA) g.events.push({id:uid(), type:'note', text:'Captain '+g.names.A+': '+g.capA, half:1, min:"0'", n:0, at:start});
   if(g.capB) g.events.push({id:uid(), type:'note', text:'Captain '+g.names.B+': '+g.capB, half:1, min:"0'", n:0, at:start});
+  sel = null; armed = null; mods = {pk:false, og:false}; flash = null; reasonFor = null;
   advance(g, Date.now());
   touchMeta(); touchGame(g); buzz([200]);
   go('live');
@@ -650,7 +646,7 @@ function teamCol(g, side, sc){
   const t = teamOf(g, side); const nums = numbersFor(g, side);
   return `<div class="tcol" style="--cb:${t.color};--cf:${textOn(t.color)}">
     <div class="thead"><span class="tname">${esc(t.name)}</span><span class="tscore">${sc}</span></div>
-    <div class="chips">${nums.map(n=>chipHTML(g,side,n)).join('')}<button class="chip add" data-act="addPlayer" data-side="${side}" aria-label="Add a number to ${esc(t.name)}">+</button></div></div>`;
+    <div class="chips">${nums.map(n=>chipHTML(g,side,n)).join('')}<button class="chip add ${nums.length?'':'wide'}" data-act="addPlayer" data-side="${side}" aria-label="Add a number to ${esc(t.name)}">${nums.length?'+':'+ Number'}</button></div></div>`;
 }
 function evText(g, e){
   const nm = e.num ? who(g, e.side, e.num) : '';
@@ -671,7 +667,7 @@ function renderLive(){
   const [sa, sb] = score(g);
   $('#v-live').innerHTML = `
     <div class="top"><button class="iconBtn" data-act="liveMenu" aria-label="Menu">☰</button>
-      <div class="tod"><span id="tod"></span><small id="period"></small></div>
+      <div class="tod"><span id="tod"></span><button class="perBtn" id="period" data-act="clockSheet" aria-label="Change period"></button></div>
       <button class="pauseBtn" id="pauseBtn" data-act="pause">PAUSE</button><button class="plusBtn" data-act="plus1" aria-label="Add one minute">+1</button></div>
     <button class="clockWrap" data-act="clockSheet" aria-label="Adjust clock"><span class="bigclock" id="bigclock">0:00</span><span class="sub" id="clocksub"></span></button>
     <div class="info" id="info"></div>
@@ -701,6 +697,15 @@ function renderPicker(g){
   const pc = $('#pclock'), bc = $('#bigclock'); if(pc && bc) pc.textContent = bc.textContent;
 }
 let lastInfoKey = '';
+function halfEndAt(g, now, i){
+  // when the current half will end: after this part, the break that follows (it ends on schedule), then the rest of the half
+  if(i.seg.k!=='play' || i.seg.endsHalf) return null;
+  const c = g.clock; let j = c.i+1; while(j<g.segs.length && !g.segs[j].endsHalf) j++;
+  if(j>=g.segs.length) return null;
+  const partEnd = now + i.rem*1000;
+  const brEnd = Math.max(schedEndOf(g, c.i+1), partEnd + MIN_BREAK*1000);
+  return brEnd + g.segs[j].len*1000;
+}
 function renderClock(force){
   const g = liveGame(); if(!g || view!=='live') return;
   const now = Date.now(); const i = info(g, now); if(!i) return;
@@ -710,28 +715,30 @@ function renderClock(force){
   bc.textContent = i.rem >= 0 ? fmtMS(Math.ceil(i.rem - 0.001)) : '+' + fmtMS(-i.rem);
   const pc = $('#pclock'); if(pc) pc.textContent = bc.textContent;
   $('#tod').innerHTML = todHTML(now);
-  $('#period').textContent = i.seg.k==='break' ? (i.seg.ht ? 'Halftime' : (i.half===1?'1st':'2nd')+' half · water break') : (i.half===1 ? '1st half' : '2nd half');
+  $('#period').textContent = (i.seg.k==='break' ? (i.seg.ht ? 'Halftime' : (i.half===1?'1st':'2nd')+' half · water break') : (i.half===1 ? '1st half' : '2nd half')) + ' ▾';
+  const endAt = now + i.rem*1000, hEnd = halfEndAt(g, now, i);
+  const nextWord = i.next==='water break' ? 'water break' : i.next==='halftime' ? 'half ends' : i.next==='full time' ? 'game ends' : i.next;
   $('#clocksub').innerHTML = i.seg.k==='play'
-    ? `<b>${i.label}</b> minute · ${i.rem>=0 ? 'to '+i.next : 'stoppage'} · played ${fmtMS(i.played)}`
-    : `${i.seg.ht?'Halftime':'Water break'} · <b>${i.next} at ${fmtTOD(now + i.rem*1000)}</b> · played ${fmtMS(i.played)}`;
+    ? (i.rem>=0 ? `<b>${i.label}</b> · ${nextWord} at <b>${fmtTOD(endAt)}</b>${hEnd?' · half ends '+fmtTOD(hEnd):''}` : `<b>${i.label}</b> · stoppage · was due ${fmtTOD(endAt)}`)
+    : `${i.seg.ht?'Halftime':'Water break'} · <b>${i.next} at ${fmtTOD(endAt)}</b>`;
   const pb = $('#pauseBtn'); pb.textContent = i.paused ? 'RESUME' : 'PAUSE'; pb.classList.toggle('on', i.paused);
   let t, btn = '';
   if(i.paused){ t = `PAUSED ${fmtMS(i.pausedFor)}`; btn = '<button class="mini" data-act="pause">Resume</button>'; }
-  else if(i.seg.k==='break'){ t = i.rem<=30 ? `${i.seg.label} · GET READY` : `${i.seg.label} · ${fmtMS(i.rem)} left`; btn = `<button class="mini" data-act="endPeriod">${i.seg.ht?'Start 2nd half':'End break'}</button>`; }
-  else if(i.rem<=0){ t = `TIME · stoppage +${fmtMS(-i.rem)}`; btn = `<button class="mini" data-act="endPeriod">${i.next==='full time'?'End game':'End 1st half'}</button>`; }
+  else if(i.seg.k==='break'){ t = i.rem<=30 ? `${i.seg.label} · GET READY` : `${i.seg.label} · played ${fmtMS(i.played)}`; btn = `<button class="mini" data-act="endPeriod">${i.seg.ht?'Start 2nd half':'End break'}</button>`; }
+  else if(i.rem<=0){ t = `TIME · stoppage +${fmtMS(-i.rem)}`; btn = `<button class="mini" data-act="endPeriod">${i.next==='full time'?'End game':i.next==='halftime'?'End 1st half':'Start break'}</button>`; }
   else if(st==='go'){ t = 'PLAY ON'; }
-  else if(st==='danger'){ t = `2 minutes to ${i.next}`; }
-  else if(st==='warn'){ t = `5 minutes to ${i.next}`; }
-  else { t = `${i.half===1?'1st':'2nd'} half · ${i.next} at ${fmtTOD(now + i.rem*1000)}`; }
-  const key = t + '|' + btn;
-  if(force || key !== lastInfoKey){ $('#info').innerHTML = `<span class="t">${esc(t)}</span>${btn}`; lastInfoKey = key; }
-  // vibration alerts (only near the moment, never on catch-up)
+  else { t = `${i.half===1?'1st':'2nd'} half · played ${fmtMS(i.played)}`; }
+  const key = t.replace(/\d+:\d\d/g,'') + '|' + btn;
+  if(force || key !== lastInfoKey){ $('#info').innerHTML = `<span class="t"></span>${btn}`; lastInfoKey = key; }
+  const ti = $('#info .t'); if(ti) ti.textContent = t;
+  // vibration: before the end of each half at 3, 2, 1 min and 30 s; long buzz at 0:00 (never on catch-up)
   const al = g.clock.al || (g.clock.al = {});
-  if(i.seg.k==='play' && !i.paused && i.len > 330){
-    if(i.rem<=300 && i.rem>290 && !al.a5){ al.a5 = 1; buzz([250]); }
-    if(i.rem<=120 && i.rem>110 && !al.a2){ al.a2 = 1; buzz([250,120,250]); }
+  const bigEnd = i.seg.k==='play' && i.seg.endsHalf;
+  if(bigEnd && !i.paused){
+    for(const [sec, k, p] of [[180,'m3',[300]],[120,'m2',[300,150,300]],[60,'m1',[300,150,300,150,300]],[30,'m30',[700,200,700]]])
+      if(i.len > sec+10 && i.rem<=sec && i.rem>sec-10 && !al[k]){ al[k] = 1; buzz(p); }
   }
-  if(i.seg.k==='play' && i.rem<=0 && i.rem>-10 && !al.a0){ al.a0 = 1; buzz([700,200,700,200,700]); }
+  if(i.seg.k==='play' && i.rem<=0 && i.rem>-10 && !al.a0){ al.a0 = 1; buzz(bigEnd ? [2000,300,2000,300,2500] : [700,200,700]); }
   if(i.seg.k==='break' && i.rem<=30 && i.rem>20 && !al.b30){ al.b30 = 1; buzz([200,100,200]); }
 }
 function renderStatus(){
@@ -744,7 +751,7 @@ function renderStatus(){
   }
   if(sel){
     const st = pStats(g, sel.side, sel.num); const susp = isSuspendedNow(g, sel.side, sel.num);
-    const sy = seasonYellows(g[sel.side], g)[sel.num] || 0;
+    const sy = seasonYellows(teamKey(g, sel.side), g)[sel.num] || 0;
     const bits = []; let kind = 'plain';
     if(susp){ bits.push('SUSPENDED, should not play'); kind = 'red'; }
     if(st.r){ bits.push('Already sent off'); kind = 'red'; }
@@ -796,12 +803,11 @@ function doLog(type, side, num){
     out.push({...base, id:uid(), type:'red', reason:''}); html = `✓ RED ${nm} · ${esc(base.min)}`; buzz([80]);
   }
   g.events.push(...out);
-  const t = teamOf(g, side); if(t.players && !t.players[num]) t.players[num] = {name:''};
   const cardEv = out.find(e=>e.type!=='goal' && !e.reason);
   reasonFor = cardEv ? {id:cardEv.id, until:now+8000} : null;
   flash = {html, kind, undo:true, ids:out.map(e=>e.id), until:now+(cardEv?8000:4000)};
   sel = null; armed = null; mods = {pk:false, og:false};
-  touchGame(g); if(t.players) touchMeta();
+  touchGame(g);
   renderLive();
 }
 function undo(){
@@ -824,27 +830,32 @@ function confirmSheet(msg, okLabel, fn){ sheetCtx = {confirm:fn}; openSheet(`<h3
 function addPlayerSheet(side){
   const g = liveGame(); const t = teamOf(g, side);
   sheetCtx = {side, val:''};
-  openSheet(`<h3 style="color:${t.color==='#111827'?'#fff':t.color}">Add number · ${esc(t.name)}</h3>
-    ${armed?`<p class="mute" style="margin:0">Will log <b>${armed.toUpperCase()}</b> for this number.</p>`:''}
+  const acts = armed
+    ? `<button class="btn big pri" data-act="addNumOk">OK · log ${armed.toUpperCase()}</button>`
+    : `<div class="kacts"><button class="act goal" data-act="addNumOk" data-type="goal">GOAL</button><button class="act yellow" data-act="addNumOk" data-type="yellow">YELLOW</button><button class="act red" data-act="addNumOk" data-type="red">RED</button></div>`;
+  openSheet(`<div class="thead" style="--cb:${t.color};--cf:${textOn(t.color)}"><span class="tname">${esc(t.name)} · type the number</span></div>
     <div class="kdisp" id="kdisp">&nbsp;</div>
-    <div class="keypad">${[1,2,3,4,5,6,7,8,9].map(n=>`<button data-act="key" data-k="${n}">${n}</button>`).join('')}<button data-act="key" data-k="del">⌫</button><button data-act="key" data-k="0">0</button><button data-act="addNumOk" style="background:var(--goal);color:#05240f">OK</button></div>
+    <div class="keypad">${[1,2,3,4,5,6,7,8,9].map(n=>`<button data-act="key" data-k="${n}">${n}</button>`).join('')}<button data-act="key" data-k="del">⌫</button><button data-act="key" data-k="0">0</button><button data-act="addNumOk" data-type="" style="font-size:16px">Add only</button></div>
+    ${(!armed || armed==='goal') ? `<div class="row2"><button class="mod ${mods.pk?'on':''}" data-act="kmod" data-m="pk">PK</button><button class="mod ${mods.og?'on':''}" data-act="kmod" data-m="og">Own goal</button></div>` : ''}
+    ${acts}
     <label class="f">Name (optional, or name only if no number)<input type="text" id="kName" autocomplete="off"></label>
     <button class="btn" data-act="closeSheet">Cancel</button>`);
 }
-function addNumOk(){
+function addNumOk(type){
   const g = liveGame(); const ctx = sheetCtx; if(!g || !ctx) return;
   const name = $('#kName').value.trim(); let key = ctx.val || name;
   if(!key){ toast('Type a number or a name'); return; }
-  const t = teamById(g[ctx.side]);
-  if(t){ if(!t.players[key]) t.players[key] = {name:''}; if(name && ctx.val) t.players[key].name = name; touchMeta(); }
+  const t = teamOf(g, ctx.side); t.players = t.players || {};
+  if(!t.players[key]) t.players[key] = {name:''}; if(name && ctx.val) t.players[key].name = name;
   if(g.hidden && g.hidden[ctx.side]) g.hidden[ctx.side] = g.hidden[ctx.side].filter(x=>x!==key);
   closeSheet();
-  if(armed) doLog(armed, ctx.side, key); else { sel = {side:ctx.side, num:key}; touchGame(g); renderLive(); }
+  const act = type===undefined ? armed : (type || null);
+  if(act) doLog(act, ctx.side, key); else { sel = {side:ctx.side, num:key}; touchGame(g); renderLive(); }
 }
 function playerSheet(side, num){
   const g = liveGame(); const t = teamOf(g, side); const st = pStats(g, side, num);
-  const sy = seasonYellows(g[side])[num] || 0;
-  let sg = 0; for(const x of S.games){ const s = sideOfTeam(x, g[side]); if(!s) continue; for(const e of x.events) if(e.type==='goal' && !e.og && e.side===s && e.num===num) sg++; }
+  const key = teamKey(g, side); const sy = seasonYellows(key)[num] || 0;
+  let sg = 0; for(const x of S.games){ const s = sideOfKey(x, key); if(!s) continue; for(const e of x.events) if(e.type==='goal' && !e.og && e.side===s && e.num===num) sg++; }
   sheetCtx = {side, num};
   openSheet(`<h3>${esc(t.name)} ${esc(numLabel(num))}</h3>
     <div class="row2"><label class="f">Number<input type="text" id="pNum" inputmode="numeric" value="${esc(num)}"></label><label class="f">Name<input type="text" id="pName" value="${esc(playerName(g,side,num))}" autocomplete="off"></label></div>
@@ -855,7 +866,7 @@ function playerSheet(side, num){
   setTimeout(()=>{ const n = $('#pName'); n && n.focus(); }, 50);
 }
 function savePlayer(){
-  const g = liveGame(); const {side, num} = sheetCtx; const t = teamById(g[side]);
+  const g = liveGame(); const {side, num} = sheetCtx; const t = teamOf(g, side); t.players = t.players || {};
   const nn = $('#pNum').value.trim() || num; const name = $('#pName').value.trim();
   if(t){
     const prev = t.players[num] || {name:''};
@@ -909,19 +920,39 @@ function addEntry(){
   const e = {id:uid(), type:'goal', side:'A', num:null, half:2, min:(2*H)+"'", n:2*H, at:g.endedAt||Date.now()};
   g.events.push(e); touchGame(g); editEvSheet(e.id);
 }
+function segName(g, j){
+  const s = g.segs[j], H = g.cfg.halfLen;
+  if(s.k==='break') return s.ht ? 'Halftime' : 'Water break ('+(g.segs[j-1] && g.segs[j-1].half===1 ? '1st':'2nd')+' half)';
+  let from = 0; for(let x=0;x<j;x++) if(g.segs[x].k==='play' && g.segs[x].half===s.half) from += g.segs[x].len/60;
+  const a = (s.half-1)*H + from, b = a + s.len/60;
+  return (s.half===1?'1st':'2nd')+' half · '+Math.round(a)+"'–"+Math.round(b)+"'";
+}
 function clockSheet(){
-  const g = liveGame(); const i = info(g);
-  openSheet(`<h3>Adjust clock</h3>
+  const g = liveGame(); const i = info(g); const cur = g.clock.i;
+  openSheet(`<h3>Clock &amp; period</h3>
+    <h2>Jump to</h2>
+    <div class="perlist">${g.segs.map((s,j)=>`<button class="btn ${j===cur?'pri':''} ${s.k==='break'?'brk':''}" data-act="jump" data-i="${j}">${j===cur?'● ':''}${esc(segName(g,j))}</button>`).join('')}
+      <button class="btn danger" data-act="jump" data-i="${g.segs.length}">End game</button></div>
+    <p class="mute" style="margin:0;font-size:13px">A period you jump to starts now with its full time. Breaks still end on the schedule.</p>
+    <h2>Adjust time left</h2>
     <div class="form3"><button class="btn" data-act="adj" data-s="-60">−1 min</button><button class="btn" data-act="adj" data-s="-10">−10 s</button><button class="btn" data-act="adj" data-s="10">+10 s</button><button class="btn" data-act="adj" data-s="60">+1 min</button></div>
-    <p class="mute" style="margin:0">Changes the time left in this ${i.seg.k==='break'?'break':'period'}.</p>
-    <button class="btn" data-act="endPeriodS">${i.seg.k==='break' ? (i.seg.ht?'Start 2nd half now':'End water break now') : i.next==='water break' ? 'Start water break now' : i.next==='halftime' ? 'End 1st half now' : 'End game now'}</button>
     <button class="btn" data-act="closeSheet">Done</button>`);
+}
+function jumpTo(g, idx){
+  const c = g.clock, now = Date.now();
+  if(c.pauseAt){ c.paused += now - c.pauseAt; c.pauseAt = null; }
+  if(idx >= g.segs.length){ c.i = g.segs.length-1; endPeriod(g); return; }
+  for(let j=0;j<idx;j++) if(g.segs[j].actual==null) g.segs[j].actual = (j===c.i ? Math.max(0,(now-c.start-c.paused)/1000) : g.segs[j].len);
+  for(let j=idx;j<g.segs.length;j++) delete g.segs[j].actual;
+  c.prev = {start:c.start, paused:c.paused, add:c.add};
+  c.i = idx; c.start = now; c.paused = 0; c.al = {}; enterSeg(g, now);
+  touchGame(g); renderLive();
 }
 function liveMenu(){
   const g = liveGame();
   openSheet(`<h3>${esc(teamOf(g,'A').name)} vs ${esc(teamOf(g,'B').name)}</h3>
     <button class="btn" data-act="note">Game note</button>
-    <button class="btn" data-act="clockSheet">Adjust clock / end period</button>
+    <button class="btn" data-act="clockSheet">Change period / adjust clock</button>
     <button class="btn" data-act="previewReport">Preview report</button>
     <button class="btn" data-act="goHomeLive">Home (game keeps running)</button>
     <button class="btn danger" data-act="cancelGame">Delete this game</button>
@@ -963,6 +994,11 @@ function dayText(ds){
   const gs = S.games.filter(g=>g.date===ds && g.status!=='setup').sort((a,b)=>kickTime(a)-kickTime(b));
   return `REPORT –\n${fmtDateLong(ds)}\n${gs.length} game${gs.length===1?'':'s'}\n\n` + gs.map((g,i)=>`GAME ${i+1}\n`+gameText(g)).join('\n\n----------\n\n');
 }
+function sendText(text){
+  // opens the phone's share menu (Messages, WhatsApp, email…) in the installed app; falls back to copying
+  if(navigator.share){ navigator.share({text}).catch(e=>{ if(!e || e.name!=='AbortError') copyText(text); }); }
+  else copyText(text);
+}
 function copyText(text){
   const fallback = () => { openSheet(`<h3>Copy this text</h3><p class="mute" style="margin:0">Press and hold in the box, then Select all and Copy.</p><textarea id="cpTx" style="min-height:300px">${esc(text)}</textarea><button class="btn" data-act="closeSheet">Done</button>`); setTimeout(()=>{ const t = $('#cpTx'); t.focus(); t.select(); }, 50); };
   try{ navigator.clipboard.writeText(text).then(()=>toast('Copied. Paste it in your text message.'), fallback); }catch(e){ fallback(); }
@@ -984,7 +1020,8 @@ function renderReport(){
     <section class="card"><h2>Report text</h2>
       <label class="chk"><input type="checkbox" id="tlChk" ${S.settings.timeline2?'checked':''}> Include minute-by-minute timeline</label>
       <pre class="rep">${esc(gameText(g))}</pre>
-      <div class="row2"><button class="btn pri" data-act="copyGame">Copy this game</button><button class="btn" data-act="copyDay" data-date="${g.date}">Copy all games ${esc(fmtDate(g.date))}</button></div></section>
+      <div class="row2"><button class="btn pri" data-act="sendDay" data-date="${g.date}">Send all games ${esc(fmtDate(g.date))}</button><button class="btn" data-act="sendGame">Send this game</button></div>
+      <div class="row2"><button class="btn" data-act="copyDay" data-date="${g.date}">Copy all games</button><button class="btn" data-act="copyGame">Copy this game</button></div></section>
     <section class="card"><h2>All entries · tap to fix</h2><div class="log">${logHTML(g)}</div>
       <div class="row2"><button class="btn" data-act="addEntry">+ Add entry</button><button class="btn" data-act="noteReport">+ Add note</button></div></section>
     <button class="btn danger" data-act="deleteGame">Delete this game</button>`;
@@ -992,12 +1029,12 @@ function renderReport(){
 
 /* ================= Standings ================= */
 function standings(){
-  const rows = {}; for(const t of S.teams) rows[t.id] = {t, P:0,W:0,D:0,L:0,GF:0,GA:0,Pts:0};
-  const s = S.settings;
+  const rows = {}; const s = S.settings;
   for(const g of finals()){
     const [a,b] = score(g);
     for(const [side,gf,ga] of [['A',a,b],['B',b,a]]){
-      const r = rows[g[side]]; if(!r) continue;
+      const t = teamOf(g, side), k = teamKey(g, side);
+      const r = rows[k] || (rows[k] = {P:0,W:0,D:0,L:0,GF:0,GA:0,Pts:0}); r.t = {name:t.name, color:t.color};
       r.P++; r.GF += gf; r.GA += ga;
       if(gf>ga){ r.W++; r.Pts += s.win; } else if(gf===ga){ r.D++; r.Pts += s.draw; } else { r.L++; r.Pts += s.loss; }
     }
@@ -1006,7 +1043,8 @@ function standings(){
 }
 function topScorers(){
   const m = {};
-  for(const g of finals()) for(const e of g.events){ if(e.type!=='goal' || e.og || !e.num) continue; const tid = g[e.side]; const k = tid+'|'+e.num; m[k] = m[k] || {tid, num:e.num, n:0}; m[k].n++; }
+  for(const g of finals()) for(const e of g.events){ if(e.type!=='goal' || e.og || !e.num) continue; const t = teamOf(g, e.side); const k = teamKey(g, e.side)+'|'+e.num;
+    m[k] = m[k] || {num:e.num, n:0, nm:''}; m[k].n++; m[k].t = {name:t.name, color:t.color}; m[k].nm = playerName(g, e.side, e.num) || m[k].nm; }
   return Object.values(m).sort((a,b)=>b.n-a.n).slice(0,15);
 }
 function renderStandings(){
@@ -1014,11 +1052,11 @@ function renderStandings(){
   $('#v-standings').innerHTML = `
     <div class="bar"><button class="btn sm" data-act="go" data-v="home">← Home</button><button class="btn sm" data-act="copyStandings">Copy table</button></div>
     <h1>Standings</h1>
-    <p class="mute" style="margin:0;font-size:13px">From finished games · win ${S.settings.win}, tie ${S.settings.draw}, loss ${S.settings.loss} (change in Settings)</p>
+    <p class="mute" style="margin:0;font-size:13px">From finished games, matched by team name · win ${S.settings.win}, tie ${S.settings.draw}, loss ${S.settings.loss} (change in Settings)</p>
     <div class="card tblwrap"><table><thead><tr><th>#</th><th style="text-align:left">Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GF</th><th>GA</th><th>GD</th><th>Pts</th></tr></thead><tbody>
-      ${rows.map((r,i)=>`<tr><td>${i+1}</td><td class="tn"><span class="sw" style="background:${r.t.color}"></span> ${esc(r.t.name)}</td><td>${r.P}</td><td>${r.W}</td><td>${r.D}</td><td>${r.L}</td><td>${r.GF}</td><td>${r.GA}</td><td>${r.GF-r.GA>0?'+':''}${r.GF-r.GA}</td><td class="pts">${r.Pts}</td></tr>`).join('')}
+      ${rows.length ? rows.map((r,i)=>`<tr><td>${i+1}</td><td class="tn"><span class="sw" style="background:${r.t.color}"></span> ${esc(r.t.name)}</td><td>${r.P}</td><td>${r.W}</td><td>${r.D}</td><td>${r.L}</td><td>${r.GF}</td><td>${r.GA}</td><td>${r.GF-r.GA>0?'+':''}${r.GF-r.GA}</td><td class="pts">${r.Pts}</td></tr>`).join('') : '<tr><td colspan="10" class="mute">No finished games yet.</td></tr>'}
     </tbody></table></div>
-    <section class="card"><h2>Top scorers</h2>${ts.length ? ts.map(x=>{ const t = teamById(x.tid); const nm = t && t.players[x.num] ? t.players[x.num].name : ''; return `<div style="display:flex;gap:8px;align-items:center"><span class="sw" style="background:${t?t.color:'#666'}"></span><span style="flex:1">${esc(t?t.name:'')} ${esc(numLabel(x.num))}${nm?' '+esc(nm):''}</span><b>${x.n}</b></div>`; }).join('') : '<p class="mute" style="margin:0">No finished games yet.</p>'}</section>`;
+    <section class="card"><h2>Top scorers</h2>${ts.length ? ts.map(x=>`<div style="display:flex;gap:8px;align-items:center"><span class="sw" style="background:${x.t.color}"></span><span style="flex:1">${esc(x.t.name)} ${esc(numLabel(x.num))}${x.nm?' '+esc(x.nm):''}</span><b>${x.n}</b></div>`).join('') : '<p class="mute" style="margin:0">No finished games yet.</p>'}</section>`;
 }
 function standingsText(){
   return 'STANDINGS\n' + standings().map((r,i)=>`${i+1}. ${r.t.name} – ${r.Pts} pts (${r.W}-${r.D}-${r.L}, GF ${r.GF} GA ${r.GA})`).join('\n');
@@ -1027,20 +1065,22 @@ function standingsText(){
 /* ================= Suspensions ================= */
 function renderSusp(){
   const bans = allBans().sort((a,b)=>b.left-a.left || kickTime(b.g)-kickTime(a.g));
-  const yl = S.settings.yellowLimit; const watch = [];
-  for(const t of S.teams){ for(const [num,c] of Object.entries(seasonYellows(t.id))) if(yl>0 && c>=yl-1) watch.push({t,num,c}); }
+  const yl = S.settings.yellowLimit; const watch = []; const keys = {};
+  for(const g of S.games) if(g.status!=='setup') for(const s of ['A','B']) keys[teamKey(g,s)] = teamOf(g,s);
+  for(const [key,t] of Object.entries(keys)) for(const [num,c] of Object.entries(seasonYellows(key))) if(yl>0 && c>=yl-1) watch.push({t,num,c,nm:nameIn(key,num)});
   $('#v-susp').innerHTML = `
     <div class="bar"><button class="btn sm" data-act="go" data-v="home">← Home</button></div>
     <h1>Suspensions</h1>
+    <p class="mute" style="margin:0;font-size:13px">Teams are matched by the name you type for each game.</p>
     <section class="card"><h2>Red cards</h2>
-    ${bans.length ? bans.map(b=>{ const t = teamById(b.tid); const nm = t && t.players[b.num] ? t.players[b.num].name : '';
+    ${bans.length ? bans.map(b=>{ const t = teamOf(b.g, b.e.side); const nm = playerName(b.g, b.e.side, b.num);
       return `<div style="display:flex;flex-direction:column;gap:6px;padding:8px 0;border-bottom:1px solid var(--line)">
-        <div><span class="sw" style="background:${t?t.color:'#666'}"></span> <b>${esc(t?t.name:'?')} ${esc(numLabel(b.num))}${nm?' '+esc(nm):''}</b> · ${esc(fmtDate(b.g.date))} ${esc(b.e.min)}${b.e.reason?' · '+esc(b.e.reason):''}</div>
+        <div><span class="sw" style="background:${t.color}"></span> <b>${esc(t.name)} ${esc(numLabel(b.num))}${nm?' '+esc(nm):''}</b> · ${esc(fmtDate(b.g.date))} ${esc(b.e.min)}${b.e.reason?' · '+esc(b.e.reason):''}</div>
         <div class="${b.left?'':'mute'}">${b.left ? `<b style="color:#ff9b9b">${b.left} game${b.left>1?'s':''} left</b>` : 'Served'} · served ${b.served} of ${b.ban}${b.set?'':' (length not set, counting 1)'}</div>
         <div class="pill">${[0,1,2,3,4,5,6].map(n=>`<button class="${b.set&&b.ban===n?'on':''}" data-act="setBanS" data-gid="${b.g.id}" data-id="${b.e.id}" data-n="${n}">${n===0?'None':n}</button>`).join('')}</div></div>`; }).join('') : '<p class="mute" style="margin:0">No red cards yet.</p>'}
     </section>
     <section class="card"><h2>Yellow card watch (limit ${yl})</h2>
-      ${watch.length ? watch.map(w=>`<div><span class="sw" style="background:${w.t.color}"></span> ${esc(w.t.name)} ${esc(numLabel(w.num))} ${esc((w.t.players[w.num]||{}).name||'')} · <b>${w.c}</b> yellow${w.c>1?'s':''}</div>`).join('') : '<p class="mute" style="margin:0">Nobody close to the limit.</p>'}
+      ${watch.length ? watch.map(w=>`<div><span class="sw" style="background:${w.t.color}"></span> ${esc(w.t.name)} ${esc(numLabel(w.num))} ${esc(w.nm)} · <b>${w.c}</b> yellow${w.c>1?'s':''}</div>`).join('') : '<p class="mute" style="margin:0">Nobody close to the limit.</p>'}
       <p class="mute" style="margin:0;font-size:13px">A second yellow in one game counts as a red, not toward this total.</p></section>`;
 }
 
@@ -1137,7 +1177,12 @@ const ACT = {
   reason: el => { const g = liveGame(); const e = g && reasonFor && g.events.find(x=>x.id===reasonFor.id); if(e){ e.reason = el.dataset.r; touchGame(g); } reasonFor = null; if(flash) flash.until = Date.now()+1500; renderLive(); },
   addPlayer: el => addPlayerSheet(el.dataset.side),
   key: el => { const k = el.dataset.k; if(k==='del') sheetCtx.val = sheetCtx.val.slice(0,-1); else if(sheetCtx.val.length<3) sheetCtx.val += k; $('#kdisp').innerHTML = sheetCtx.val ? '#'+sheetCtx.val : '&nbsp;'; },
-  addNumOk: addNumOk,
+  addNumOk: el => addNumOk(el.dataset.type),
+  kmod: el => { const m = el.dataset.m; mods[m] = !mods[m]; if(m==='og' && mods.og) mods.pk = false; if(m==='pk' && mods.pk) mods.og = false; document.querySelectorAll('[data-act="kmod"]').forEach(b=>b.classList.toggle('on', !!mods[b.dataset.m])); },
+  jump: el => { const g = liveGame(); closeSheet(); if(g) jumpTo(g, Number(el.dataset.i)); },
+  setupColor: el => { readSetup(); draft.tm[el.dataset.side].color = el.dataset.c; renderSetup(); },
+  sendGame: () => sendText(gameText(gameById(viewArg))),
+  sendDay: el => sendText(dayText(el.dataset.date)),
   savePlayer: savePlayer,
   hidePlayer: () => { const g = liveGame(); const {side, num} = sheetCtx; g.hidden = g.hidden || {A:[],B:[]}; g.hidden[side].push(num); if(sel && sel.num===num) sel = null; touchGame(g); closeSheet(); renderLive(); toast(numLabel(num)+' hidden for this game'); },
   editEv: el => editEvSheet(el.dataset.id),
@@ -1188,7 +1233,7 @@ document.addEventListener('click', e=>{
 });
 document.addEventListener('change', e=>{
   if(e.target.id==='tlChk'){ S.settings.timeline2 = e.target.checked; touchMeta(); rerender(); }
-  if(view==='setup' && ['sA','sB','sDate','sTime'].includes(e.target.id)){ readSetup(); renderSetup(); }
+  if(view==='setup' && ['sNameA','sNameB','sDate','sTime'].includes(e.target.id)){ readSetup(); const w = $('#warns'); if(w) w.innerHTML = warningsHTML(); }
 });
 
 /* ================= Tick ================= */
@@ -1204,7 +1249,8 @@ setInterval(()=>{
 }, 250);
 
 /* ================= Boot ================= */
-go(liveGame() ? 'live' : 'home');
+let startGo = null; try{ startGo = new URLSearchParams(location.search).get('go'); }catch(e){}
+if(liveGame()) go('live'); else if(startGo==='setup'){ draft = null; go('setup'); } else if(startGo==='standings') go('standings'); else go('home');
 initCloud();
 </script>
 
