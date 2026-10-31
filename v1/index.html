@@ -213,7 +213,7 @@ const COLORS = [
   ['Blue','#2563eb'],['White','#f5f5f5'],['Red','#dc2626'],['Black','#111827'],['Yellow','#facc15'],['Green','#16a34a'],['Orange','#f97316'],
   ['Purple','#7c3aed'],['Sky','#38bdf8'],['Maroon','#7f1d1d'],['Gray','#9ca3af'],['Pink','#ec4899'],['Navy','#1e3a8a'],['Teal','#0d9488']];
 const DEF = {halfLen:40, breakAt:20, breakLen:5, htLen:15, win:3, draw:1, loss:0, yellowLimit:3,
-  reasons:['Foul','Dissent','Unsporting','Fighting','Bad language','Handball','Other'], vibrate:true, timeline2:false};
+  reasons:['Foul','Dissent','Unsporting','Fighting','Bad language','Handball','Other'], vibrate:true, timeline2:false, reportStyle:'full'};
 
 function defaultState(){
   return {v:1, settings:{...DEF}, teams:Array.from({length:9},(_,i)=>({id:'t'+(i+1), name:'Team '+(i+1), color:COLORS[i][1], players:{}})),
@@ -976,7 +976,26 @@ function cardLines(g, side){
   return g.events.filter(e=>(e.type==='yellow'||e.type==='red') && e.side===side).sort((a,b)=>a.at-b.at)
     .map(e=>{ const nm = e.num ? playerName(g, side, e.num) : ''; return `  ${e.type==='yellow'?'Yellow':'RED'} ${numLabel(e.num||'?')}${nm?' '+nm:''}${e.reason?' ('+e.reason+')':''}${e.type==='red'&&e.ban!=null&&e.ban>0?' – ban '+e.ban+' game'+(e.ban===1?'':'s'):''}`; });
 }
-function gameText(g, withTimeline = S.settings.timeline2){
+function gameText(g){ return S.settings.reportStyle==='short' ? shortGameText(g) : fullGameText(g); }
+function shortGameText(g){
+  // one line per goal and card, like the referee's handwritten notes
+  const A = teamOf(g,'A'), B = teamOf(g,'B'); const [a,b] = score(g);
+  const L = [`${fmtDateLong(g.date)} · ${g.kickoff?fmtTOD(g.kickoff):fmt12(g.sched)}${g.status==='live'?' (in progress)':''}`, `${A.name} ${a} - ${b} ${B.name}`];
+  const ev = [...g.events].sort((x,y)=>x.at-y.at);
+  const pl = e => { const nm = e.num && isNum(e.num) ? playerName(g, e.side, e.num) : ''; return numLabel(e.num||'?') + (nm ? ' '+nm : ''); };
+  for(const s of ['A','B']){
+    const t = teamOf(g, s); const gl = ev.filter(e=>e.type==='goal' && (e.og ? other(e.side) : e.side)===s);
+    if(!gl.length) continue;
+    L.push('');
+    for(const e of gl) L.push(e.og ? `${t.name} own goal ${pl(e)} (${teamOf(g,e.side).name})` : `${t.name} goal ${pl(e)}${e.pk?' (PK)':''}`);
+  }
+  const cards = ev.filter(e=>e.type==='yellow' || e.type==='red');
+  if(cards.length){ L.push(''); for(const e of cards) L.push(`${e.type==='yellow'?'Yellow':'Red'} for ${pl(e)} ${teamOf(g,e.side).name}${e.reason?' ('+e.reason+')':''}`); }
+  const notes = ev.filter(e=>e.type==='note');
+  if(notes.length){ L.push(''); for(const e of notes) L.push(`Note: ${e.num?who(g,e.side,e.num)+': ':''}${e.text}`); }
+  return L.join('\n');
+}
+function fullGameText(g, withTimeline = S.settings.timeline2){
   const A = teamOf(g,'A'), B = teamOf(g,'B'); const [a,b] = score(g);
   const L = [];
   L.push(`${fmtDateLong(g.date)} · ${g.kickoff?fmtTOD(g.kickoff):fmt12(g.sched)}${g.status==='live'?' (in progress)':''}`);
@@ -1023,7 +1042,8 @@ function renderReport(){
     <p class="mute center" style="margin:0">Halftime ${ha}–${hb} · ${esc(fmtDateLong(g.date))} · ${g.kickoff?fmtTOD(g.kickoff):''}${g.status==='live'?' · in progress':''}</p>
     ${banHTML}
     <section class="card"><h2>Report text</h2>
-      <label class="chk"><input type="checkbox" id="tlChk" ${S.settings.timeline2?'checked':''}> Include minute-by-minute timeline</label>
+      <div class="pill"><button class="${S.settings.reportStyle!=='short'?'on':''}" data-act="repStyle" data-s="full">Full report</button><button class="${S.settings.reportStyle==='short'?'on':''}" data-act="repStyle" data-s="short">Short list</button></div>
+      ${S.settings.reportStyle!=='short' ? `<label class="chk"><input type="checkbox" id="tlChk" ${S.settings.timeline2?'checked':''}> Include minute-by-minute timeline</label>` : ''}
       <pre class="rep">${esc(gameText(g))}</pre>
       <div class="row2"><button class="btn pri" data-act="sendDay" data-date="${g.date}">Send all games ${esc(fmtDate(g.date))}</button><button class="btn" data-act="sendGame">Send this game</button></div>
       <div class="row2"><button class="btn" data-act="copyDay" data-date="${g.date}">Copy all games</button><button class="btn" data-act="copyGame">Copy this game</button></div></section>
@@ -1187,6 +1207,7 @@ const ACT = {
   setWB: el => { readSetup(); draft.wb = el.dataset.v==='1'; renderSetup(); },
   skipWB: () => { const g = liveGame(); if(!g) return; closeSheet(); skipWaterBreaks(g); if(view==='live') renderLive(); toast('Water breaks removed'); },
   addWB: () => { const g = liveGame(); if(!g) return; closeSheet(); const hs = addWaterBreaks(g); renderLive(); toast(hs.length ? 'Water break added' + (hs.length>1?'s':'') : 'Too late to add a water break in this half'); },
+  repStyle: el => { S.settings.reportStyle = el.dataset.s; touchMeta(); rerender(); },
   jump: el => { const g = liveGame(); closeSheet(); if(g) jumpTo(g, Number(el.dataset.i)); },
   setupColor: el => { readSetup(); draft.tm[el.dataset.side].color = el.dataset.c; renderSetup(); },
   sendGame: () => sendText(gameText(gameById(viewArg))),
