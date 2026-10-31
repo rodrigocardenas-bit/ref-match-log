@@ -308,7 +308,7 @@ function buildSegs(c){
   for(const half of [1,2]){
     if(c.breakAt>0 && c.breakAt<c.halfLen){
       segs.push({k:'play', half, len:c.breakAt*60});
-      segs.push({k:'break', label:'WATER BREAK', len:c.breakLen*60});
+      segs.push({k:'break', label:'WATER BREAK', len:c.breakLen*60, half});
       segs.push({k:'play', half, len:(c.halfLen-c.breakAt)*60, endsHalf:true});
     } else segs.push({k:'play', half, len:c.halfLen*60, endsHalf:true});
     if(half===1) segs.push({k:'break', label:'HALFTIME', len:c.htLen*60, ht:true});
@@ -497,11 +497,27 @@ function renderHome(){
 let draft = null;
 const colorName = c => (COLORS.find(x=>x[1]===c)||['Team'])[0];
 function newDraft(){
-  const now = new Date(); const m = now.getMinutes();
-  const sched = pad(now.getHours() + (m>45?1:0)) + ':' + (m>45 ? '00' : m>15 ? '30' : '00');
-  draft = {id:uid(), date:todayStr(), sched, capA:'', capB:'',
+  const now = new Date(); const h = (now.getHours() + (now.getMinutes()>=40 ? 1 : 0)) % 24;
+  const sched = pad(h) + ':10';
+  const firstToday = !S.games.some(g=>g.date===todayStr() && g.status!=='setup');
+  draft = {id:uid(), date:todayStr(), sched, capA:'', capB:'', wb:firstToday,
     tm:{A:{name:'', color:'#2563eb', players:{}}, B:{name:'', color:'#f5f5f5', players:{}}},
     cfg:{halfLen:S.settings.halfLen, breakAt:S.settings.breakAt, breakLen:S.settings.breakLen, htLen:S.settings.htLen}, status:'setup', events:[], hidden:{A:[],B:[]}};
+}
+function effectiveCfg(d){
+  // no water breaks: the first-half break time moves into halftime, so the 2nd half still starts on schedule
+  const c = d.cfg; return d.wb ? {...c} : {...c, breakAt:0, htLen:c.htLen + (c.breakAt>0 && c.breakAt<c.halfLen ? c.breakLen : 0)};
+}
+function schedPreview(){
+  if(!draft || !draft.sched) return '';
+  const [hh,mm] = draft.sched.split(':').map(Number); const d0 = dateObj(draft.date); d0.setHours(hh,mm,0,0);
+  let t = d0.getTime(); const parts = ['Start '+fmtTOD(t)];
+  for(const sg of buildSegs(effectiveCfg(draft))){
+    if(sg.k==='break'){ if(sg.ht){ parts.push('halftime '+fmtTOD(t)); parts.push('2nd half '+fmtTOD(t + sg.len*1000)); } else parts.push('water break '+fmtTOD(t)); }
+    t += sg.len*1000;
+  }
+  parts.push('ends '+fmtTOD(t));
+  return parts.join(' · ');
 }
 function draftName(side){ const t = draft.tm[side]; return t.name || colorName(t.color); }
 function warningsHTML(){
@@ -537,6 +553,10 @@ function renderSetup(){
     <p class="mute" style="margin:0;font-size:13px">Every game starts empty. Numbers show up as you log goals and cards.</p>
     <div class="row2"><label class="f">Date<input type="date" id="sDate" value="${draft.date}"></label><label class="f">Scheduled start<input type="time" id="sTime" value="${draft.sched}"></label></div>
     ${box('A')}${box('B')}
+    <section class="card"><h2>Water breaks this game?</h2>
+      <div class="row2"><button class="btn ${draft.wb?'pri':''}" data-act="setWB" data-v="1">Yes, water breaks</button><button class="btn ${draft.wb?'':'pri'}" data-act="setWB" data-v="0">No water breaks</button></div>
+      <p class="mute" id="schedPrev" style="margin:0;font-size:13px">${esc(schedPreview())}</p>
+      <p class="mute" style="margin:0;font-size:12px">You can add or skip water breaks during the game: tap the period name under the time.</p></section>
     <datalist id="pastTeams">${past.map(n=>`<option value="${esc(n)}"></option>`).join('')}</datalist>
     <div id="warns">${warningsHTML()}</div>
     <section class="card"><h2>Times for this game (minutes)</h2>
@@ -552,6 +572,7 @@ function readSetup(){
   draft.capA = $('#sCapA').value.trim(); draft.capB = $('#sCapB').value.trim();
   const num = (id, d) => { const v = parseFloat($(id).value); return isFinite(v) && v>=0 ? v : d; };
   draft.cfg = {halfLen:num('#sHalf',40)||40, breakAt:num('#sBrAt',20), breakLen:num('#sBrLen',5), htLen:num('#sHt',15)};
+  const p = $('#schedPrev'); if(p) p.textContent = schedPreview();
 }
 function kickoff(mode){
   readSetup();
@@ -559,6 +580,7 @@ function kickoff(mode){
   if(draft.tm.A.name.toLowerCase()===draft.tm.B.name.toLowerCase()){ toast('Give the two teams different names'); return; }
   const g = draft; draft = null;
   g.names = {A:g.tm.A.name, B:g.tm.B.name}; g.colors = {A:g.tm.A.color, B:g.tm.B.color};
+  g.cfg = effectiveCfg(g);
   g.segs = buildSegs(g.cfg);
   let start = Date.now();
   if(mode==='sched' && g.sched){ const [h,m] = g.sched.split(':').map(Number); const d = dateObj(g.date); d.setHours(h,m,0,0); if(d.getTime() < start) start = d.getTime(); }
@@ -870,9 +892,56 @@ function clockSheet(){
     <div class="perlist">${g.segs.map((s,j)=>`<button class="btn ${j===cur?'pri':''} ${s.k==='break'?'brk':''}" data-act="jump" data-i="${j}">${j===cur?'● ':''}${esc(segName(g,j))}</button>`).join('')}
       <button class="btn danger" data-act="jump" data-i="${g.segs.length}">End game</button></div>
     <p class="mute" style="margin:0;font-size:13px">A period you jump to starts now with its full time. Breaks still end on the schedule.</p>
+    <h2>Water breaks</h2>
+    <div class="row2"><button class="btn" data-act="skipWB" ${waterBreaksLeft(g).length?'':'disabled style="opacity:.4"'}>Skip water break${waterBreaksLeft(g).length>1?'s':''}</button><button class="btn" data-act="addWB" ${halvesWithoutBreak(g).length?'':'disabled style="opacity:.4"'}>Add water break</button></div>
+    <p class="mute" style="margin:0;font-size:12px">Skip removes the water breaks still to come. Add puts one at ${Math.round(breakPoint(g)/60)}' of each half still to play. The 2nd half start time stays the same.</p>
     <h2>Adjust time left</h2>
     <div class="form3"><button class="btn" data-act="adj" data-s="-60">−1 min</button><button class="btn" data-act="adj" data-s="-10">−10 s</button><button class="btn" data-act="adj" data-s="10">+10 s</button><button class="btn" data-act="adj" data-s="60">+1 min</button></div>
     <button class="btn" data-act="closeSheet">Done</button>`);
+}
+function breakHalf(g, j){ const s = g.segs[j]; return s.half || (g.segs[j-1] && g.segs[j-1].half) || 1; }
+function waterBreaksLeft(g){ return g.segs.map((s,j)=>j).filter(j=>g.segs[j].k==='break' && !g.segs[j].ht && j>=g.clock.i); }
+function halvesWithoutBreak(g){
+  // halves still to play (or in progress, before the break point) that have no water break
+  const out = []; const c = g.clock; const now = Date.now();
+  for(const h of [1,2]){
+    if(g.segs.some(s=>s.k==='break' && !s.ht && (s.half||0)===h) || g.segs.some((s,j)=>s.k==='break' && !s.ht && breakHalf(g,j)===h)) continue;
+    const p = g.segs.findIndex(s=>s.k==='play' && s.half===h && s.endsHalf);
+    if(p<0 || p<c.i) continue;
+    const at = breakPoint(g);
+    const el = p===c.i ? Math.max(0,((c.pauseAt||now)-c.start-c.paused)/1000) : 0;
+    if(g.segs[p].len > at && el < at-30) out.push(h);
+  }
+  return out;
+}
+function breakPoint(g){ return (g.cfg.breakAt>0 && g.cfg.breakAt<g.cfg.halfLen ? g.cfg.breakAt : (S.settings.breakAt>0 && S.settings.breakAt<g.cfg.halfLen ? S.settings.breakAt : g.cfg.halfLen/2))*60; }
+function skipWaterBreaks(g){
+  const c = g.clock;
+  if(g.segs[c.i] && g.segs[c.i].k==='break' && !g.segs[c.i].ht){ endPeriod(g); }
+  for(let j=g.segs.length-1; j>c.i; j--){
+    const s = g.segs[j]; if(s.k!=='break' || s.ht) continue;
+    const prev = g.segs[j-1], next = g.segs[j+1]; if(!prev || !next || prev.k!=='play' || next.k!=='play') continue;
+    const h = breakHalf(g, j);
+    prev.len += next.len; prev.endsHalf = true; delete prev.actual;
+    g.segs.splice(j, 2);
+    if(h===1){ const ht = g.segs.find(x=>x.ht); if(ht) ht.len += s.len; }   // keeps the 2nd half start time the same
+  }
+  touchGame(g);
+}
+function addWaterBreaks(g){
+  const halves = halvesWithoutBreak(g); const at = breakPoint(g);
+  const bl = (g.cfg.breakLen>0 ? g.cfg.breakLen : (S.settings.breakLen||5))*60;
+  for(const h of halves){
+    const p = g.segs.findIndex(s=>s.k==='play' && s.half===h && s.endsHalf);
+    const seg = g.segs[p];
+    const first = {k:'play', half:h, len:at}, br = {k:'break', label:'WATER BREAK', len:bl, half:h}, second = {k:'play', half:h, len:seg.len-at, endsHalf:true};
+    g.segs.splice(p, 1, first, br, second);
+    if(h===1){ const ht = g.segs.find(x=>x.ht); if(ht) ht.len = Math.max(300, ht.len - bl); }   // keeps the 2nd half start time the same
+  }
+  if(!(g.cfg.breakAt>0)) g.cfg.breakAt = at/60;
+  if(!(g.cfg.breakLen>0)) g.cfg.breakLen = bl/60;
+  touchGame(g);
+  return halves;
 }
 function jumpTo(g, idx){
   const c = g.clock, now = Date.now();
@@ -1115,6 +1184,9 @@ const ACT = {
   key: el => { const k = el.dataset.k; if(k==='del') sheetCtx.val = sheetCtx.val.slice(0,-1); else if(sheetCtx.val.length<3) sheetCtx.val += k; $('#kdisp').innerHTML = sheetCtx.val ? '#'+sheetCtx.val : '&nbsp;'; },
   addNumOk: el => addNumOk(el.dataset.type),
   kmod: el => { const m = el.dataset.m; mods[m] = !mods[m]; if(m==='og' && mods.og) mods.pk = false; if(m==='pk' && mods.pk) mods.og = false; document.querySelectorAll('[data-act="kmod"]').forEach(b=>b.classList.toggle('on', !!mods[b.dataset.m])); },
+  setWB: el => { readSetup(); draft.wb = el.dataset.v==='1'; renderSetup(); },
+  skipWB: () => { const g = liveGame(); if(!g) return; closeSheet(); skipWaterBreaks(g); if(view==='live') renderLive(); toast('Water breaks removed'); },
+  addWB: () => { const g = liveGame(); if(!g) return; closeSheet(); const hs = addWaterBreaks(g); renderLive(); toast(hs.length ? 'Water break added' + (hs.length>1?'s':'') : 'Too late to add a water break in this half'); },
   jump: el => { const g = liveGame(); closeSheet(); if(g) jumpTo(g, Number(el.dataset.i)); },
   setupColor: el => { readSetup(); draft.tm[el.dataset.side].color = el.dataset.c; renderSetup(); },
   sendGame: () => sendText(gameText(gameById(viewArg))),
@@ -1169,7 +1241,7 @@ document.addEventListener('click', e=>{
 });
 document.addEventListener('change', e=>{
   if(e.target.id==='tlChk'){ S.settings.timeline2 = e.target.checked; touchMeta(); rerender(); }
-  if(view==='setup' && ['sNameA','sNameB','sDate','sTime'].includes(e.target.id)){ readSetup(); const w = $('#warns'); if(w) w.innerHTML = warningsHTML(); }
+  if(view==='setup' && ['sNameA','sNameB','sDate','sTime','sHalf','sBrAt','sBrLen','sHt'].includes(e.target.id)){ readSetup(); const w = $('#warns'); if(w) w.innerHTML = warningsHTML(); }
 });
 
 /* ================= Tick ================= */
